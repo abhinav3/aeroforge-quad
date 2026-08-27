@@ -5,6 +5,8 @@
 [build.environment]
   NODE_VERSION = "22.13.0"
   PNPM_VERSION = "11.19.0"
+  # This site publishes the dedicated Vite bundle, not the Next.js app output.
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
 
 [[headers]]
   for = "/*"
