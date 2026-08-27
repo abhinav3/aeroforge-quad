@@ -75,10 +75,11 @@ function SweepChart({ rho, cd, area, current }:{rho:number; cd:number; area:numb
 }
 
 type FlightState = { x:number;y:number;z:number;u:number;v:number;w:number;phi:number;theta:number;psi:number;p:number;q:number;r:number;t:number };
+type Waypoint = [number,number,number];
 const initialFlight: FlightState = {x:0,y:0,z:0,u:0,v:0,w:0,phi:0,theta:0,psi:0,p:0,q:0,r:0,t:0};
-const missionWaypoints:[number,number,number][]=[[0,0,2],[3,0,3],[3,3,3],[0,0,1.5]];
+const defaultWaypoints:Waypoint[]=[[0,0,2],[3,0,3],[3,3,3],[0,0,1.5]];
 
-function FlightScene({history,flight,currentWp}:{history:FlightState[];flight:FlightState;currentWp:number}) {
+function FlightScene({history,flight,currentWp,waypoints}:{history:FlightState[];flight:FlightState;currentWp:number;waypoints:Waypoint[]}) {
   const canvasRef=useRef<HTMLCanvasElement>(null);
   const dragRef=useRef<{x:number;y:number}|null>(null);
   const [camera,setCamera]=useState({yaw:-.72,elev:.48,zoom:1});
@@ -90,7 +91,7 @@ function FlightScene({history,flight,currentWp}:{history:FlightState[];flight:Fl
       canvas.width=Math.max(1,Math.round(rect.width*dpr)); canvas.height=Math.max(1,Math.round(rect.height*dpr));
       const ctx=canvas.getContext('2d'); if(!ctx) return; ctx.scale(dpr,dpr);
       const w=rect.width,h=rect.height,cx=w*.5,cy=h*.57;
-      const extent=Math.max(4,...history.flatMap(s=>[Math.abs(s.x),Math.abs(s.y),Math.abs(s.z)]));
+      const extent=Math.max(4,...history.flatMap(s=>[Math.abs(s.x),Math.abs(s.y),Math.abs(s.z)]),...waypoints.flatMap(p=>p.map(Math.abs)));
       const range=Math.min(14,Math.ceil(extent+1)), scale=Math.min(w,h)/(range*2.05), camDist=range*2.8;
       const project=(p:[number,number,number])=>{const [x,y,z]=p;const hx=Math.cos(camera.yaw)*x-Math.sin(camera.yaw)*y;const depth=Math.sin(camera.yaw)*x+Math.cos(camera.yaw)*y;const vy=Math.cos(camera.elev)*z-Math.sin(camera.elev)*depth;const vd=Math.sin(camera.elev)*z+Math.cos(camera.elev)*depth;const perspective=Math.max(.48,Math.min(1.8,camDist/(camDist-vd*.62)));return [cx+hx*scale*perspective*camera.zoom,cy-vy*scale*perspective*camera.zoom,perspective] as const};
       const line=(a:[number,number,number],b:[number,number,number],color:string,width=1,dash:number[]=[] )=>{const pa=project(a),pb=project(b);ctx.beginPath();ctx.moveTo(pa[0],pa[1]);ctx.lineTo(pb[0],pb[1]);ctx.strokeStyle=color;ctx.lineWidth=width*(pa[2]+pb[2])*.5;ctx.setLineDash(dash);ctx.stroke();ctx.setLineDash([])};
@@ -111,8 +112,8 @@ function FlightScene({history,flight,currentWp}:{history:FlightState[];flight:Fl
       [[-5,-2],[-4,-3.5],[5,2.7],[6,4],[-6,4.5],[3.8,5.2]].forEach(([x,y])=>{line([x,y,0],[x,y,.75],'#4f5142',4);const p=project([x,y,.95]);ctx.beginPath();ctx.arc(p[0],p[1],Math.max(5,12*p[2]),0,Math.PI*2);ctx.fillStyle='#385d4b';ctx.fill();ctx.beginPath();ctx.arc(p[0]-4,p[1]+2,Math.max(3,8*p[2]),0,Math.PI*2);ctx.fillStyle='#557c61';ctx.fill()});
       line([0,0,0],[2,0,0],orange,2);line([0,0,0],[0,2,0],green,2);line([0,0,0],[0,0,2],'#377eaa',2);
       const label=(txt:string,p:[number,number,number],color:string)=>{const a=project(p);ctx.fillStyle=color;ctx.font='700 10px monospace';ctx.fillText(txt,a[0]+4,a[1]-4)};label('X',[2,0,0],orange);label('Y',[0,2,0],green);label('Z',[0,0,2],'#377eaa');
-      ctx.beginPath();missionWaypoints.forEach((p,i)=>{const m=project(p);i?ctx.lineTo(m[0],m[1]):ctx.moveTo(m[0],m[1])});ctx.strokeStyle='#8de0b1';ctx.globalAlpha=.75;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
-      missionWaypoints.forEach((p,i)=>{const ground=project([p[0],p[1],0]),m=project(p);line([p[0],p[1],0],p,'#b8d7c5',.8,[3,4]);ctx.beginPath();ctx.arc(m[0],m[1],i===currentWp?8:5,0,Math.PI*2);ctx.fillStyle=i===currentWp?orange:green;ctx.fill();ctx.strokeStyle='#f5f2e9';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=ink;ctx.font='700 8px monospace';ctx.fillText(`WP${i+1}`,m[0]+9,m[1]-7);ctx.beginPath();ctx.ellipse(ground[0],ground[1],7*ground[2],3*ground[2],0,0,Math.PI*2);ctx.strokeStyle=green;ctx.stroke()});
+      ctx.beginPath();waypoints.forEach((p,i)=>{const m=project(p);i?ctx.lineTo(m[0],m[1]):ctx.moveTo(m[0],m[1])});ctx.strokeStyle='#8de0b1';ctx.globalAlpha=.75;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
+      waypoints.forEach((p,i)=>{const ground=project([p[0],p[1],0]),m=project(p);line([p[0],p[1],0],p,'#b8d7c5',.8,[3,4]);ctx.beginPath();ctx.arc(m[0],m[1],i===currentWp?8:5,0,Math.PI*2);ctx.fillStyle=i===currentWp?orange:green;ctx.fill();ctx.strokeStyle='#f5f2e9';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=ink;ctx.font='700 8px monospace';ctx.fillText(`WP${i+1}`,m[0]+9,m[1]-7);ctx.beginPath();ctx.ellipse(ground[0],ground[1],7*ground[2],3*ground[2],0,0,Math.PI*2);ctx.strokeStyle=green;ctx.stroke()});
       if(history.length>1){ctx.beginPath();history.forEach((s,i)=>{const p=project([s.x,s.y,s.z]);i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])});ctx.strokeStyle=cyan;ctx.shadowColor='#27d0ca';ctx.shadowBlur=5;ctx.lineWidth=2.5;ctx.stroke();ctx.shadowBlur=0}
       const shadow=project([flight.x,flight.y,0]),center=project([flight.x,flight.y,flight.z]);ctx.save();ctx.filter='blur(4px)';ctx.globalAlpha=Math.max(.12,.4-flight.z*.045);ctx.beginPath();ctx.ellipse(shadow[0],shadow[1],30*shadow[2],11*shadow[2],0,0,Math.PI*2);ctx.fillStyle='#18312c';ctx.fill();ctx.restore();line([flight.x,flight.y,0],[flight.x,flight.y,flight.z],orange,.8,[4,4]);
       const modelScale=1.55;const rotate=([x,y,z]:[number,number,number])=>{x*=modelScale;y*=modelScale;z*=modelScale;const cr=Math.cos(flight.phi),sr=Math.sin(flight.phi),cp=Math.cos(flight.theta),sp=Math.sin(flight.theta),cyw=Math.cos(flight.psi),syw=Math.sin(flight.psi);const x1=x,y1=cr*y-sr*z,z1=sr*y+cr*z;const x2=cp*x1+sp*z1,y2=y1,z2=-sp*x1+cp*z1;return [cyw*x2-syw*y2+flight.x,syw*x2+cyw*y2+flight.y,z2+flight.z] as [number,number,number]};
@@ -127,7 +128,7 @@ function FlightScene({history,flight,currentWp}:{history:FlightState[];flight:Fl
       const vignette=ctx.createRadialGradient(cx,cy,Math.min(w,h)*.2,cx,cy,Math.max(w,h)*.7);vignette.addColorStop(.65,'#00000000');vignette.addColorStop(1,'#0c252635');ctx.fillStyle=vignette;ctx.fillRect(0,0,w,h);
     };
     draw(); const observer=new ResizeObserver(draw);observer.observe(canvas);return()=>observer.disconnect();
-  },[history,flight,camera,currentWp]);
+  },[history,flight,camera,currentWp,waypoints]);
 
   const move=(x:number,y:number)=>{const d=dragRef.current;if(!d)return;setCamera(c=>({...c,yaw:c.yaw+(x-d.x)*.008,elev:Math.max(.08,Math.min(1.25,c.elev+(y-d.y)*.006))}));dragRef.current={x,y}};
   return <div className="flight-canvas-wrap"><canvas ref={canvasRef} className="flight-canvas" aria-label="Perspective 3D quadcopter flying above an outdoor test field"
@@ -145,10 +146,11 @@ function FlightDynamics({baseRpm,mass,rho,diameter}:{baseRpm:number;mass:number;
   const [gust,setGust]=useState(0);
   const [mode,setMode]=useState<'Manual'|'PID'>('PID');
   const [wpIndex,setWpIndex]=useState(0);
+  const [waypoints,setWaypoints]=useState<Waypoint[]>(()=>defaultWaypoints.map(point=>[...point] as Waypoint));
   const [motorOutput,setMotorOutput]=useState([baseRpm,baseRpm,baseRpm,baseRpm]);
   const pidRef=useRef({ix:0,iy:0,iz:0,ex:0,ey:0,ez:0});
   const manualMotors=trim.map(v=>Math.max(0,baseRpm*(1+v/100)));
-  const target=missionWaypoints[wpIndex];
+  const target=waypoints[Math.min(wpIndex,waypoints.length-1)];
 
   useEffect(()=>{
     if(!active) return;
@@ -166,7 +168,7 @@ function FlightDynamics({baseRpm,mass,rho,diameter}:{baseRpm:number;mass:number;
         const tauX=Math.max(-.6,Math.min(.6,.18*(desiredRoll-s.phi)-.045*s.p));const tauY=Math.max(-.6,Math.min(.6,.18*(desiredPitch-s.theta)-.045*s.q));const collective=Math.max(0,mass*9.80665+zCmd);
         const motorThrust=[collective/4-tauY/(2*arm),collective/4-tauX/(2*arm),collective/4+tauY/(2*arm),collective/4+tauX/(2*arm)];
         motors=motorThrust.map(t=>Math.max(3000,Math.min(10000,60*Math.sqrt(Math.max(.01,t)/(.102*rho*Math.pow(diameter,4))))));
-        if(Math.hypot(...error)<.45&&wpIndex<missionWaypoints.length-1){setWpIndex(i=>i+1);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}}
+        if(Math.hypot(...error)<.45&&wpIndex<waypoints.length-1){setWpIndex(i=>i+1);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}}
       }
       setMotorOutput(motors);
       const thrusts=motors.map(m=>.102*rho*Math.pow(m/60,2)*Math.pow(diameter,4));
@@ -183,9 +185,13 @@ function FlightDynamics({baseRpm,mass,rho,diameter}:{baseRpm:number;mass:number;
       setHistory(h=>[...h.slice(-179),next]); return next;
     }),20);
     return()=>window.clearInterval(timer);
-  },[active,baseRpm,mass,rho,diameter,gust,trim.join(','),mode,wpIndex,target.join(',')]);
+  },[active,baseRpm,mass,rho,diameter,gust,trim.join(','),mode,wpIndex,target.join(','),waypoints.length]);
 
   const reset=()=>{setActive(false);setFlight(initialFlight);setHistory([initialFlight]);setTrim([0,0,0,0]);setGust(0);setWpIndex(0);setMotorOutput([baseRpm,baseRpm,baseRpm,baseRpm]);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
+  const setWaypointValue=(index:number,axis:number,value:number)=>{if(!Number.isFinite(value))return;setWaypoints(points=>points.map((point,i)=>i===index?point.map((coordinate,a)=>a===axis?value:coordinate) as Waypoint:point));if(index===wpIndex)pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
+  const addWaypoint=()=>setWaypoints(points=>{const last=points.at(-1)??[0,0,2];return [...points,[last[0],last[1],Math.max(.2,last[2])] as Waypoint]});
+  const removeWaypoint=(index:number)=>setWaypoints(points=>{if(points.length===1)return points;const next=points.filter((_,i)=>i!==index);setWpIndex(current=>Math.min(current,next.length-1));return next});
+  const restoreWaypoints=()=>{setWaypoints(defaultWaypoints.map(point=>[...point] as Waypoint));setWpIndex(0);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
   const deg=(v:number)=>v*180/Math.PI;
 
   return <div className="dynamics-view">
@@ -193,12 +199,21 @@ function FlightDynamics({baseRpm,mass,rho,diameter}:{baseRpm:number;mass:number;
     <div className="dynamics-grid">
       <div className="flight-arena">
         <div className="arena-head"><span>3D TRAJECTORY / WORLD FRAME</span><b>WP {wpIndex+1} · {Math.hypot(target[0]-flight.x,target[1]-flight.y,target[2]-flight.z).toFixed(2)} m</b></div>
-        <FlightScene history={history} flight={flight} currentWp={wpIndex}/>
+        <FlightScene history={history} flight={flight} currentWp={wpIndex} waypoints={waypoints}/>
         <div className="arena-axis"><span>DRAG TO ORBIT · SCROLL TO ZOOM</span><span>PERSPECTIVE DEPTH · VEHICLE 1.55×</span></div>
       </div>
       <div className="motor-panel">
         <div className="arena-head"><span>CONTROL ALLOCATOR</span><b>± TRIM</b></div>
         <div className="mode-switch"><button className={mode==='PID'?'active':''} onClick={()=>setMode('PID')}>PID WAYPOINT</button><button className={mode==='Manual'?'active':''} onClick={()=>setMode('Manual')}>MANUAL MIX</button></div>
+        <div className="waypoint-editor">
+          <div className="waypoint-head"><span>MISSION WAYPOINTS</span><small>X / Y / Z · METRES</small></div>
+          {waypoints.map((point,i)=><div className={`waypoint-row ${i===wpIndex?'active':''}`} key={i}>
+            <button className="waypoint-select" onClick={()=>{setWpIndex(i);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}}}>WP{i+1}</button>
+            {point.map((value,axis)=><input key={axis} aria-label={`Waypoint ${i+1} ${['X','Y','Z'][axis]} coordinate`} type="number" min={axis===2?.2:-20} max="20" step="0.1" value={value} onChange={e=>setWaypointValue(i,axis,+e.target.value)}/>)}
+            <button className="waypoint-remove" aria-label={`Remove waypoint ${i+1}`} disabled={waypoints.length===1} onClick={()=>removeWaypoint(i)}>×</button>
+          </div>)}
+          <div className="waypoint-actions"><button onClick={addWaypoint}>＋ ADD</button><button onClick={restoreWaypoints}>↺ DEFAULTS</button></div>
+        </div>
         {(mode==='Manual'?manualMotors:motorOutput).map((m,i)=><div className="motor-control" key={i}><label><span>M{i+1} <i>{i%2?'CCW':'CW'}</i></span><b>{m.toFixed(0)} rpm</b></label><input disabled={mode==='PID'} aria-label={`Motor ${i+1} trim`} type="range" min="-12" max="12" step=".5" value={trim[i]} onChange={e=>setTrim(t=>t.map((v,n)=>n===i?+e.target.value:v))}/></div>)}
         {mode==='PID'&&<div className="pid-status"><span>ACTIVE TARGET</span><b>WP{wpIndex+1} · [{target.map(v=>v.toFixed(1)).join(', ')}] m</b><small>POS Kₚ 1.5 · Kᵢ 0.1 · K<sub>d</sub> 1.0<br/>ALT Kₚ 5.0 · Kᵢ 0.8 · K<sub>d</sub> 3.0</small></div>}
         <div className="gust-control"><label><span>LATERAL GUST</span><b>{gust.toFixed(1)} N</b></label><input aria-label="Lateral gust force" type="range" min="-6" max="6" step=".2" value={gust} onChange={e=>setGust(+e.target.value)}/></div>

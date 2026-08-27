@@ -14,7 +14,7 @@ The simulator integrates Newton–Euler rigid-body states in three dimensions an
 
 - Interactive 3D aerodynamic flow field with animated streamlines, rotor downwash, force vectors, terrain, depth cues, and a detailed quadcopter model
 - Six-degree-of-freedom translation and rotation with Euler-integrated Newton–Euler dynamics
-- PID waypoint following, manual motor mixing, live motor RPM, attitude, position, velocity, and mission status
+- PID waypoint following with editable X/Y/Z mission points, add/remove controls, restoreable defaults, manual motor mixing, and live flight state
 - Adjustable airspeed, wind heading, pitch, rotor speed, propeller diameter, vehicle mass, reference area, and drag coefficient
 - Live estimates for thrust, drag, power, endurance, Reynolds number, disk loading, force balance, and roll moment
 - Exportable CSV data for downstream analysis
