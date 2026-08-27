@@ -1,0 +1,10 @@
+node_modules/
+dist/
+netlify-dist/
+.next/
+.vinext/
+.wrangler/
+.netlify/
+.env*
+!.env.example
+.DS_Store
