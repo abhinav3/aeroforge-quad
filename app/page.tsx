@@ -23,11 +23,11 @@ function Range({ label, value, min, max, step=1, unit, onChange }:{ label:string
 function FlowFieldScene({airspeed,pitch,heading,rpm,drag,thrust,running}:{airspeed:number;pitch:number;heading:number;rpm:number;drag:number;thrust:number;running:boolean}) {
   const canvasRef=useRef<HTMLCanvasElement>(null);
   useEffect(()=>{
-    const canvas=canvasRef.current;if(!canvas)return;let frame=0;let observer:ResizeObserver;
+    const canvas=canvasRef.current;if(!canvas)return;let frame=0;
     const draw=(now:number)=>{
       const rect=canvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));
       const ctx=canvas.getContext('2d');if(!ctx)return;ctx.scale(dpr,dpr);const w=rect.width,h=rect.height,cx=w*.53,cy=h*.43;
-      const styles=getComputedStyle(document.documentElement),ink=styles.getPropertyValue('--ink').trim(),cyan=styles.getPropertyValue('--cyan').trim(),orange=styles.getPropertyValue('--orange').trim();
+      const styles=getComputedStyle(document.documentElement),ink=styles.getPropertyValue('--ink').trim(),orange=styles.getPropertyValue('--orange').trim();
       const sky=ctx.createLinearGradient(0,0,0,h*.7);sky.addColorStop(0,'#789eae');sky.addColorStop(.58,'#c4d4d1');sky.addColorStop(1,'#e8e2d2');ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
       const sun=ctx.createRadialGradient(w*.79,h*.13,1,w*.79,h*.13,60);sun.addColorStop(0,'#fff3cddd');sun.addColorStop(1,'#fff3cd00');ctx.fillStyle=sun;ctx.beginPath();ctx.arc(w*.79,h*.13,60,0,Math.PI*2);ctx.fill();
       ctx.beginPath();ctx.moveTo(0,h*.39);[[.08,.28],[.18,.37],[.3,.23],[.41,.38],[.56,.29],[.66,.39],[.78,.25],[.9,.36],[1,.3]].forEach(p=>ctx.lineTo(w*p[0],h*p[1]));ctx.lineTo(w,h*.58);ctx.lineTo(0,h*.58);ctx.closePath();ctx.fillStyle='#607b76';ctx.globalAlpha=.5;ctx.fill();ctx.globalAlpha=1;
@@ -50,7 +50,7 @@ function FlowFieldScene({airspeed,pitch,heading,rpm,drag,thrust,running}:{airspe
       ctx.fillStyle='rgba(16,44,47,.8)';ctx.font='700 9px monospace';ctx.fillText(`V∞ ${airspeed.toFixed(1)} m/s`,24,h-28);ctx.fillText(`RPM ${rpm.toFixed(0)}`,24,h-14);const vignette=ctx.createRadialGradient(cx,cy,100,cx,cy,Math.max(w,h)*.7);vignette.addColorStop(.6,'#00000000');vignette.addColorStop(1,'#0c25262f');ctx.fillStyle=vignette;ctx.fillRect(0,0,w,h);
       if(running)frame=requestAnimationFrame(draw);
     };
-    draw(performance.now());observer=new ResizeObserver(()=>{if(!running)draw(performance.now())});observer.observe(canvas);return()=>{cancelAnimationFrame(frame);observer.disconnect()};
+    draw(performance.now());const observer=new ResizeObserver(()=>{if(!running)draw(performance.now())});observer.observe(canvas);return()=>{cancelAnimationFrame(frame);observer.disconnect()};
   },[airspeed,pitch,heading,rpm,drag,thrust,running]);
   return <canvas ref={canvasRef} className="flow-canvas" aria-label="Three-dimensional aerodynamic flow field around a quadcopter in an outdoor test environment"/>;
 }
@@ -138,94 +138,92 @@ function FlightScene({history,flight,currentWp,waypoints}:{history:FlightState[]
   </div>;
 }
 
-function FlightDynamics({baseRpm,mass,rho,diameter}:{baseRpm:number;mass:number;rho:number;diameter:number}) {
-  const [flight,setFlight]=useState<FlightState>(initialFlight);
-  const [history,setHistory]=useState<FlightState[]>([initialFlight]);
-  const [active,setActive]=useState(false);
-  const [trim,setTrim]=useState([0,0,0,0]);
-  const [gust,setGust]=useState(0);
-  const [mode,setMode]=useState<'Manual'|'PID'>('PID');
-  const [wpIndex,setWpIndex]=useState(0);
-  const [waypoints,setWaypoints]=useState<Waypoint[]>(()=>defaultWaypoints.map(point=>[...point] as Waypoint));
-  const [motorOutput,setMotorOutput]=useState([baseRpm,baseRpm,baseRpm,baseRpm]);
-  const pidRef=useRef({ix:0,iy:0,iz:0,ex:0,ey:0,ez:0});
-  const manualMotors=trim.map(v=>Math.max(0,baseRpm*(1+v/100)));
-  const target=waypoints[Math.min(wpIndex,waypoints.length-1)];
+type ControllerSample={t:number;x:number;y:number;z:number;tx:number;ty:number;tz:number;error:number;p:number;i:number;d:number;gust:number;rpm:number;saturation:number;power:number};
+type LabTab='Mission'|'Controller'|'Signals'|'Realism'|'Score'|'Learn';
+type Gains={kp:number;ki:number;kd:number};
 
+function SignalChart({samples,series}:{samples:ControllerSample[];series:{key:keyof ControllerSample;label:string;color:string}[]}){
+  const w=440,h=126,pad=18,values=series.flatMap(s=>samples.map(row=>Number(row[s.key]))),min=Math.min(0,...values),max=Math.max(1,...values),span=max-min||1;
+  const path=(key:keyof ControllerSample)=>samples.map((row,i)=>`${i?'L':'M'}${pad+i/Math.max(1,samples.length-1)*(w-pad*2)},${h-pad-(Number(row[key])-min)/span*(h-pad*2)}`).join(' ');
+  return <svg className="signal-chart" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={series.map(s=>s.label).join(' and ')}><line x1={pad} y1={h-pad} x2={w-pad} y2={h-pad}/><line x1={pad} y1={pad} x2={pad} y2={h-pad}/>{series.map(s=><path key={s.key} d={path(s.key)} style={{stroke:s.color}}/>)}<text x={pad} y="12">{max.toFixed(1)}</text><text x={pad} y={h-3}>{min.toFixed(1)}</text></svg>;
+}
+
+function FlightDynamics({baseRpm,mass,rho,diameter}:{baseRpm:number;mass:number;rho:number;diameter:number}) {
+  const [flight,setFlight]=useState<FlightState>(initialFlight),[history,setHistory]=useState<FlightState[]>([initialFlight]);
+  const [active,setActive]=useState(false),[mode,setMode]=useState<'Manual'|'PID'>('PID'),[tab,setTab]=useState<LabTab>('Mission');
+  const [trim,setTrim]=useState([0,0,0,0]),[gust,setGust]=useState(0),[wpIndex,setWpIndex]=useState(0);
+  const [waypoints,setWaypoints]=useState<Waypoint[]>(()=>defaultWaypoints.map(point=>[...point] as Waypoint));
+  const [posGains,setPosGains]=useState<Gains>({kp:1.5,ki:.1,kd:1}),[altGains,setAltGains]=useState<Gains>({kp:5,ki:.8,kd:3});
+  const [pidParts,setPidParts]=useState({p:true,i:true,d:true}),[architecture,setArchitecture]=useState<'Direct'|'Cascaded'>('Cascaded');
+  const [limits,setLimits]=useState({radius:.45,velocity:3,tilt:18,rpm:10000,thrust:32});
+  const [realism,setRealism]=useState({gpsNoise:.02,imuBias:0,motorLag:.08,batterySag:.08,turbulence:.4,payload:0,cgOffset:0,groundEffect:true});
+  const [motorOutput,setMotorOutput]=useState([baseRpm,baseRpm,baseRpm,baseRpm]),[terms,setTerms]=useState({p:0,i:0,d:0,roll:0,pitch:0,collective:0});
+  const [samples,setSamples]=useState<ControllerSample[]>([]),[missionComplete,setMissionComplete]=useState(false),[notice,setNotice]=useState('DEFAULT CONFIGURATION');
+  const [replayIndex,setReplayIndex]=useState<number|null>(null),[savedGains,setSavedGains]=useState<{pos:Gains;alt:Gains}|null>(null);
+  const pidRef=useRef({ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}),motorRef=useRef([baseRpm,baseRpm,baseRpm,baseRpm]),sampleRef=useRef(0);
+  const manualMotors=trim.map(v=>Math.max(0,baseRpm*(1+v/100))),target=waypoints[Math.min(wpIndex,waypoints.length-1)],effectiveMass=mass+realism.payload;
+
+  useEffect(()=>{if(replayIndex===null)return;const timer=window.setInterval(()=>setReplayIndex(i=>i===null?null:i>=history.length-1?null:i+1),45);return()=>window.clearInterval(timer)},[replayIndex,history.length]);
   useEffect(()=>{
-    if(!active) return;
+    if(!active)return;
     const timer=window.setInterval(()=>setFlight(s=>{
-      const dt=.02, arm=.225, ix=.012, iy=.012, iz=.02;
-      let motors=manualMotors;
+      const dt=.02,arm=.225,ix=.012+effectiveMass*.001,iy=ix,iz=.02+effectiveMass*.0015,pid=pidRef.current;
+      let motors=manualMotors,error=[0,0,0],pTerm=0,iTerm=0,dTerm=0,desiredRoll=0,desiredPitch=0,collective=effectiveMass*9.80665;
+      const sensorWave=Math.sin(s.t*7.7)*realism.gpsNoise,sensed={x:s.x+sensorWave,y:s.y-sensorWave*.7,z:s.z+Math.sin(s.t*9.1)*realism.gpsNoise+realism.imuBias};
       if(mode==='PID'){
-        const error=[target[0]-s.x,target[1]-s.y,target[2]-s.z],pid=pidRef.current;
+        error=[target[0]-sensed.x,target[1]-sensed.y,target[2]-sensed.z];
         pid.ix=Math.max(-3,Math.min(3,pid.ix+error[0]*dt));pid.iy=Math.max(-3,Math.min(3,pid.iy+error[1]*dt));pid.iz=Math.max(-5,Math.min(5,pid.iz+error[2]*dt));
         const dex=(error[0]-pid.ex)/dt,dey=(error[1]-pid.ey)/dt,dez=(error[2]-pid.ez)/dt;pid.ex=error[0];pid.ey=error[1];pid.ez=error[2];
-        const axCmd=Math.max(-2,Math.min(2,1.5*error[0]+.1*pid.ix+1*dex));
-        const ayCmd=Math.max(-2,Math.min(2,1.5*error[1]+.1*pid.iy+1*dey));
-        const zCmd=Math.max(-mass*5,Math.min(mass*6,5*error[2]+.8*pid.iz+3*dez));
-        const desiredPitch=Math.max(-.32,Math.min(.32,axCmd/9.80665));const desiredRoll=Math.max(-.32,Math.min(.32,-ayCmd/9.80665));
-        const tauX=Math.max(-.6,Math.min(.6,.18*(desiredRoll-s.phi)-.045*s.p));const tauY=Math.max(-.6,Math.min(.6,.18*(desiredPitch-s.theta)-.045*s.q));const collective=Math.max(0,mass*9.80665+zCmd);
-        const motorThrust=[collective/4-tauY/(2*arm),collective/4-tauX/(2*arm),collective/4+tauY/(2*arm),collective/4+tauX/(2*arm)];
-        motors=motorThrust.map(t=>Math.max(3000,Math.min(10000,60*Math.sqrt(Math.max(.01,t)/(.102*rho*Math.pow(diameter,4))))));
-        if(Math.hypot(...error)<.45&&wpIndex<waypoints.length-1){setWpIndex(i=>i+1);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}}
+        pTerm=pidParts.p?posGains.kp*Math.hypot(error[0],error[1]):0;iTerm=pidParts.i?posGains.ki*Math.hypot(pid.ix,pid.iy):0;dTerm=pidParts.d?posGains.kd*Math.hypot(dex,dey):0;
+        const rawX=(pidParts.p?posGains.kp*error[0]:0)+(pidParts.i?posGains.ki*pid.ix:0)+(pidParts.d?posGains.kd*dex:0),rawY=(pidParts.p?posGains.kp*error[1]:0)+(pidParts.i?posGains.ki*pid.iy:0)+(pidParts.d?posGains.kd*dey:0);
+        const desiredU=Math.max(-limits.velocity,Math.min(limits.velocity,rawX)),desiredV=Math.max(-limits.velocity,Math.min(limits.velocity,rawY));
+        const axCmd=architecture==='Cascaded'?1.35*(desiredU-s.u):rawX,ayCmd=architecture==='Cascaded'?1.35*(desiredV-s.v):rawY,maxTilt=limits.tilt*Math.PI/180;
+        desiredPitch=Math.max(-maxTilt,Math.min(maxTilt,axCmd/9.80665));desiredRoll=Math.max(-maxTilt,Math.min(maxTilt,-ayCmd/9.80665));
+        const zCmd=(pidParts.p?altGains.kp*error[2]:0)+(pidParts.i?altGains.ki*pid.iz:0)+(pidParts.d?altGains.kd*dez:0),tauX=Math.max(-.6,Math.min(.6,.2*(desiredRoll-s.phi)-.05*s.p)),tauY=Math.max(-.6,Math.min(.6,.2*(desiredPitch-s.theta)-.05*s.q));
+        collective=Math.max(0,Math.min(limits.thrust,effectiveMass*9.80665+zCmd));const motorThrust=[collective/4-tauY/(2*arm),collective/4-tauX/(2*arm),collective/4+tauY/(2*arm),collective/4+tauX/(2*arm)];
+        const maxRpm=limits.rpm*(1-realism.batterySag*.12),commanded=motorThrust.map(t=>Math.max(2500,Math.min(maxRpm,60*Math.sqrt(Math.max(.01,t)/(.102*rho*Math.pow(diameter,4))))));const alpha=Math.min(1,dt/(realism.motorLag+dt));motors=commanded.map((m,i)=>motorRef.current[i]+(m-motorRef.current[i])*alpha);
+        if(Math.hypot(...error)<limits.radius){if(wpIndex<waypoints.length-1){setWpIndex(i=>i+1);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}}else setMissionComplete(true)}
       }
-      setMotorOutput(motors);
-      const thrusts=motors.map(m=>.102*rho*Math.pow(m/60,2)*Math.pow(diameter,4));
-      const total=thrusts.reduce((a,b)=>a+b,0);
-      const tauX=arm*(thrusts[3]-thrusts[1]);
-      const tauY=arm*(thrusts[2]-thrusts[0]);
-      const yawK=7.5e-9;
-      const tauZ=yawK*(motors[0]**2-motors[1]**2+motors[2]**2-motors[3]**2);
-      const ax=total/mass*Math.sin(s.theta)-.1*s.u*Math.abs(s.u)/mass+gust/mass;
-      const ay=-total/mass*Math.sin(s.phi)-.1*s.v*Math.abs(s.v)/mass;
-      const az=total/mass*Math.cos(s.phi)*Math.cos(s.theta)-9.80665-.2*s.w*Math.abs(s.w)/mass;
-      const np=s.p+(tauX/ix-.45*s.p)*dt, nq=s.q+(tauY/iy-.45*s.q)*dt, nr=s.r+(tauZ/iz-.65*s.r)*dt;
-      const next={x:s.x+s.u*dt,y:s.y+s.v*dt,z:Math.max(0,s.z+s.w*dt),u:s.u+ax*dt,v:s.v+ay*dt,w:s.z<=0&&s.w<0?0:s.w+az*dt,phi:s.phi+np*dt,theta:s.theta+nq*dt,psi:s.psi+nr*dt,p:np,q:nq,r:nr,t:s.t+dt};
-      setHistory(h=>[...h.slice(-179),next]); return next;
-    }),20);
-    return()=>window.clearInterval(timer);
-  },[active,baseRpm,mass,rho,diameter,gust,trim.join(','),mode,wpIndex,target.join(','),waypoints.length]);
+      motorRef.current=motors;setMotorOutput(motors);setTerms({p:pTerm,i:iTerm,d:dTerm,roll:desiredRoll*180/Math.PI,pitch:desiredPitch*180/Math.PI,collective});
+      const thrusts=motors.map(m=>.102*rho*Math.pow(m/60,2)*Math.pow(diameter,4)),groundMultiplier=realism.groundEffect&&s.z<1?1+(1-s.z)*.12:1,total=thrusts.reduce((a,b)=>a+b,0)*groundMultiplier;
+      const tauX=arm*(thrusts[3]-thrusts[1]),tauY=arm*(thrusts[2]-thrusts[0])+collective*realism.cgOffset*.015,tauZ=7.5e-9*(motors[0]**2-motors[1]**2+motors[2]**2-motors[3]**2),turbulence=realism.turbulence*(Math.sin(s.t*2.7)+.45*Math.sin(s.t*7.3));
+      const ax=total/effectiveMass*Math.sin(s.theta)-.1*s.u*Math.abs(s.u)/effectiveMass+(gust+turbulence)/effectiveMass,ay=-total/effectiveMass*Math.sin(s.phi)-.1*s.v*Math.abs(s.v)/effectiveMass,az=total/effectiveMass*Math.cos(s.phi)*Math.cos(s.theta)-9.80665-.2*s.w*Math.abs(s.w)/effectiveMass;
+      const np=s.p+(tauX/ix-.45*s.p)*dt,nq=s.q+(tauY/iy-.45*s.q)*dt,nr=s.r+(tauZ/iz-.65*s.r)*dt,next={x:s.x+s.u*dt,y:s.y+s.v*dt,z:Math.max(0,s.z+s.w*dt),u:s.u+ax*dt,v:s.v+ay*dt,w:s.z<=0&&s.w<0?0:s.w+az*dt,phi:s.phi+np*dt,theta:s.theta+nq*dt,psi:s.psi+nr*dt,p:np,q:nq,r:nr,t:s.t+dt};
+      setHistory(h=>[...h.slice(-599),next]);if(++sampleRef.current%5===0){const avg=motors.reduce((a,b)=>a+b,0)/4;setSamples(rows=>[...rows.slice(-239),{t:next.t,x:next.x,y:next.y,z:next.z,tx:target[0],ty:target[1],tz:target[2],error:Math.hypot(...error),p:pTerm,i:iTerm,d:dTerm,gust:gust+turbulence,rpm:avg,saturation:avg>limits.rpm*.97?1:0,power:4*1.1e-7*avg*avg}])}return next;
+    }),20);return()=>window.clearInterval(timer);
+  },[active,baseRpm,rho,diameter,gust,mode,wpIndex,target.join(','),waypoints.length,effectiveMass,posGains,altGains,pidParts,architecture,limits,realism,trim.join(',')]);
 
-  const reset=()=>{setActive(false);setFlight(initialFlight);setHistory([initialFlight]);setTrim([0,0,0,0]);setGust(0);setWpIndex(0);setMotorOutput([baseRpm,baseRpm,baseRpm,baseRpm]);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
-  const setWaypointValue=(index:number,axis:number,value:number)=>{if(!Number.isFinite(value))return;setWaypoints(points=>points.map((point,i)=>i===index?point.map((coordinate,a)=>a===axis?value:coordinate) as Waypoint:point));if(index===wpIndex)pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
+  const reset=()=>{setActive(false);setReplayIndex(null);setFlight(initialFlight);setHistory([initialFlight]);setSamples([]);setTrim([0,0,0,0]);setGust(0);setWpIndex(0);setMissionComplete(false);setMotorOutput([baseRpm,baseRpm,baseRpm,baseRpm]);motorRef.current=[baseRpm,baseRpm,baseRpm,baseRpm];pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
+  const setWaypointValue=(index:number,axis:number,value:number)=>{if(!Number.isFinite(value))return;setWaypoints(points=>points.map((point,i)=>i===index?point.map((coordinate,a)=>a===axis?value:coordinate) as Waypoint:point))};
   const addWaypoint=()=>setWaypoints(points=>{const last=points.at(-1)??[0,0,2];return [...points,[last[0],last[1],Math.max(.2,last[2])] as Waypoint]});
   const removeWaypoint=(index:number)=>setWaypoints(points=>{if(points.length===1)return points;const next=points.filter((_,i)=>i!==index);setWpIndex(current=>Math.min(current,next.length-1));return next});
-  const restoreWaypoints=()=>{setWaypoints(defaultWaypoints.map(point=>[...point] as Waypoint));setWpIndex(0);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}};
-  const deg=(v:number)=>v*180/Math.PI;
+  const restoreWaypoints=()=>{setWaypoints(defaultWaypoints.map(point=>[...point] as Waypoint));setWpIndex(0);setNotice('DEFAULT MISSION RESTORED')};
+  const applyPreset=(name:'Stable'|'Responsive'|'Oscillatory'|'Wind')=>{const presets={Stable:[{kp:1.2,ki:.08,kd:1.25},{kp:4.5,ki:.6,kd:3.4}],Responsive:[{kp:2.2,ki:.14,kd:.9},{kp:6.5,ki:1,kd:2.5}],Oscillatory:[{kp:4.2,ki:.5,kd:.05},{kp:9,ki:1.8,kd:.2}],Wind:[{kp:1.8,ki:.28,kd:1.4},{kp:5.5,ki:1.1,kd:3.6}]} as const;setPosGains(presets[name][0]);setAltGains(presets[name][1]);setNotice(`${name.toUpperCase()} PRESET`)};
+  const saveConfig=()=>{const data={posGains,altGains,limits,realism,waypoints,architecture};localStorage.setItem('aeroforge-controller',JSON.stringify(data));setSavedGains({pos:{...posGains},alt:{...altGains}});setNotice('CONFIGURATION SAVED')};
+  const loadConfig=()=>{const raw=localStorage.getItem('aeroforge-controller');if(!raw){setNotice('NO SAVED CONFIGURATION');return}const data=JSON.parse(raw);setPosGains(data.posGains);setAltGains(data.altGains);setLimits(data.limits);setRealism(data.realism);setWaypoints(data.waypoints);setArchitecture(data.architecture);setNotice('CONFIGURATION LOADED')};
+  const exportController=()=>{const rows=['time,x,y,z,target_x,target_y,target_z,error,p_term,i_term,d_term,gust,rpm,power_w',...samples.map(s=>[s.t,s.x,s.y,s.z,s.tx,s.ty,s.tz,s.error,s.p,s.i,s.d,s.gust,s.rpm,s.power].join(','))];const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));a.download='aeroforge-flight-controller.csv';a.click();URL.revokeObjectURL(a.href)};
+  const rms=Math.sqrt(samples.reduce((sum,s)=>sum+s.error*s.error,0)/Math.max(1,samples.length)),overshoot=Math.max(0,...samples.map(s=>s.z-Math.max(...waypoints.map(p=>p[2])))),sat=samples.reduce((sum,s)=>sum+s.saturation,0)/Math.max(1,samples.length),energy=samples.reduce((sum,s)=>sum+s.power*.1/3600,0),score=Math.max(0,Math.min(100,100-rms*12-overshoot*8-sat*35));
+  const displayIndex=replayIndex===null?history.length-1:Math.min(replayIndex,history.length-1),displayFlight=replayIndex===null?flight:history[displayIndex],displayHistory=replayIndex===null?history:history.slice(0,displayIndex+1),deg=(v:number)=>v*180/Math.PI;
+  const gainInput=(group:'pos'|'alt',key:keyof Gains,value:number)=><input aria-label={`${group} ${key}`} type="number" min="0" max="12" step="0.05" value={value} onChange={e=>(group==='pos'?setPosGains:setAltGains)(g=>({...g,[key]:+e.target.value}))}/>;
 
   return <div className="dynamics-view">
-    <div className="performance-title"><div><span>6-DOF RIGID-BODY MODEL</span><h2>Flight dynamics</h2></div><p>Euler-integrated Newton–Euler states with motor mixing, body drag and lateral gust forcing.</p></div>
-    <div className="dynamics-grid">
-      <div className="flight-arena">
-        <div className="arena-head"><span>3D TRAJECTORY / WORLD FRAME</span><b>WP {wpIndex+1} · {Math.hypot(target[0]-flight.x,target[1]-flight.y,target[2]-flight.z).toFixed(2)} m</b></div>
-        <FlightScene history={history} flight={flight} currentWp={wpIndex} waypoints={waypoints}/>
-        <div className="arena-axis"><span>DRAG TO ORBIT · SCROLL TO ZOOM</span><span>PERSPECTIVE DEPTH · VEHICLE 1.55×</span></div>
-      </div>
-      <div className="motor-panel">
-        <div className="arena-head"><span>CONTROL ALLOCATOR</span><b>± TRIM</b></div>
-        <div className="mode-switch"><button className={mode==='PID'?'active':''} onClick={()=>setMode('PID')}>PID WAYPOINT</button><button className={mode==='Manual'?'active':''} onClick={()=>setMode('Manual')}>MANUAL MIX</button></div>
-        <div className="waypoint-editor">
-          <div className="waypoint-head"><span>MISSION WAYPOINTS</span><small>X / Y / Z · METRES</small></div>
-          {waypoints.map((point,i)=><div className={`waypoint-row ${i===wpIndex?'active':''}`} key={i}>
-            <button className="waypoint-select" onClick={()=>{setWpIndex(i);pidRef.current={ix:0,iy:0,iz:0,ex:0,ey:0,ez:0}}}>WP{i+1}</button>
-            {point.map((value,axis)=><input key={axis} aria-label={`Waypoint ${i+1} ${['X','Y','Z'][axis]} coordinate`} type="number" min={axis===2?.2:-20} max="20" step="0.1" value={value} onChange={e=>setWaypointValue(i,axis,+e.target.value)}/>)}
-            <button className="waypoint-remove" aria-label={`Remove waypoint ${i+1}`} disabled={waypoints.length===1} onClick={()=>removeWaypoint(i)}>×</button>
-          </div>)}
-          <div className="waypoint-actions"><button onClick={addWaypoint}>＋ ADD</button><button onClick={restoreWaypoints}>↺ DEFAULTS</button></div>
+    <div className="performance-title"><div><span>INTERACTIVE FLIGHT-CONTROL LAB</span><h2>PID waypoint flight</h2></div><p>Follow the live control chain, tune the loops and add real-world effects while the 6-DOF vehicle flies.</p></div>
+    <div className="dynamics-grid lab-grid">
+      <div className="flight-arena"><div className="arena-head"><span>3D TRAJECTORY / WORLD FRAME</span><b>{missionComplete?'MISSION COMPLETE':`WP ${wpIndex+1} · ${Math.hypot(target[0]-flight.x,target[1]-flight.y,target[2]-flight.z).toFixed(2)} m`}</b></div><FlightScene history={displayHistory} flight={displayFlight} currentWp={wpIndex} waypoints={waypoints}/><div className="control-flow" aria-label="Live controller signal flow"><div><span>WAYPOINT</span><b>{target.map(v=>v.toFixed(1)).join(' / ')}</b></div><i>→</i><div><span>PID ERROR</span><b>{Math.hypot(target[0]-flight.x,target[1]-flight.y,target[2]-flight.z).toFixed(2)} m</b></div><i>→</i><div><span>ATTITUDE</span><b>{terms.roll.toFixed(1)}° / {terms.pitch.toFixed(1)}°</b></div><i>→</i><div><span>MOTOR MIX</span><b>{(motorOutput.reduce((a,b)=>a+b,0)/4).toFixed(0)} rpm</b></div></div><div className="arena-axis"><span>DRAG TO ORBIT · SCROLL TO ZOOM</span><span>{replayIndex===null?'LIVE PHYSICS':'FLIGHT REPLAY'}</span></div></div>
+      <div className="motor-panel lab-panel">
+        <div className="lab-tabs" role="tablist">{(['Mission','Controller','Signals','Realism','Score','Learn'] as LabTab[]).map(name=><button role="tab" aria-selected={tab===name} className={tab===name?'active':''} onClick={()=>setTab(name)} key={name}>{name}</button>)}</div>
+        <div className="lab-tab-body" aria-live="polite">
+          {tab==='Mission'&&<><div className="mode-switch"><button className={mode==='PID'?'active':''} onClick={()=>setMode('PID')}>PID WAYPOINT</button><button className={mode==='Manual'?'active':''} onClick={()=>setMode('Manual')}>MANUAL MIX</button></div><div className="waypoint-editor"><div className="waypoint-head"><span>MISSION WAYPOINTS</span><small>X / Y / Z · METRES</small></div>{waypoints.map((point,i)=><div className={`waypoint-row ${i===wpIndex?'active':''}`} key={i}><button className="waypoint-select" onClick={()=>setWpIndex(i)}>WP{i+1}</button>{point.map((value,axis)=><input key={axis} aria-label={`Waypoint ${i+1} ${['X','Y','Z'][axis]}`} type="number" min={axis===2?.2:-20} max="20" step="0.1" value={value} onChange={e=>setWaypointValue(i,axis,+e.target.value)}/>) }<button className="waypoint-remove" disabled={waypoints.length===1} onClick={()=>removeWaypoint(i)}>×</button></div>)}<div className="waypoint-actions"><button onClick={addWaypoint}>＋ ADD</button><button onClick={restoreWaypoints}>↺ DEFAULTS</button></div></div><div className="compact-grid"><label>Acceptance radius <b>{limits.radius.toFixed(2)} m</b><input type="range" min=".15" max="1.5" step=".05" value={limits.radius} onChange={e=>setLimits(v=>({...v,radius:+e.target.value}))}/></label><label>Max velocity <b>{limits.velocity.toFixed(1)} m/s</b><input type="range" min=".5" max="7" step=".1" value={limits.velocity} onChange={e=>setLimits(v=>({...v,velocity:+e.target.value}))}/></label><label>Max tilt <b>{limits.tilt}°</b><input type="range" min="5" max="40" value={limits.tilt} onChange={e=>setLimits(v=>({...v,tilt:+e.target.value}))}/></label><label>Max RPM <b>{limits.rpm}</b><input type="range" min="6000" max="12000" step="100" value={limits.rpm} onChange={e=>setLimits(v=>({...v,rpm:+e.target.value}))}/></label></div></>}
+          {tab==='Controller'&&<><div className="controller-presets">{(['Stable','Responsive','Oscillatory','Wind'] as const).map(name=><button key={name} onClick={()=>applyPreset(name)}>{name}</button>)}</div><label className="select-row">Architecture<select value={architecture} onChange={e=>setArchitecture(e.target.value as 'Direct'|'Cascaded')}><option>Cascaded</option><option>Direct</option></select></label><div className="gain-table"><span>LOOP</span><b>Kₚ</b><b>Kᵢ</b><b>K<sub>d</sub></b><span>POSITION</span>{gainInput('pos','kp',posGains.kp)}{gainInput('pos','ki',posGains.ki)}{gainInput('pos','kd',posGains.kd)}<span>ALTITUDE</span>{gainInput('alt','kp',altGains.kp)}{gainInput('alt','ki',altGains.ki)}{gainInput('alt','kd',altGains.kd)}</div><div className="pid-switches">{(['p','i','d'] as const).map(key=><label key={key}><input type="checkbox" checked={pidParts[key]} onChange={e=>setPidParts(v=>({...v,[key]:e.target.checked}))}/>{key.toUpperCase()} TERM</label>)}</div><div className="term-bars">{(['p','i','d'] as const).map(key=><div key={key}><span>{key.toUpperCase()}</span><i style={{width:`${Math.min(100,terms[key]*10)}%`}}/><b>{terms[key].toFixed(2)}</b></div>)}</div><div className="motor-bank">{(mode==='Manual'?manualMotors:motorOutput).map((m,i)=><div className="motor-control" key={i}><label><span>M{i+1} <i>{i%2?'CCW':'CW'}</i></span><b>{m.toFixed(0)} rpm</b></label><input disabled={mode==='PID'} type="range" min="-12" max="12" step=".5" value={trim[i]} onChange={e=>setTrim(t=>t.map((v,n)=>n===i?+e.target.value:v))}/></div>)}</div></>}
+          {tab==='Signals'&&<><div className="signal-legend"><span className="actual">ACTUAL</span><span className="target">TARGET</span><span className="error">ERROR</span></div><h3>Altitude tracking</h3><SignalChart samples={samples} series={[{key:'z',label:'Actual altitude',color:'var(--cyan)'},{key:'tz',label:'Target altitude',color:'var(--orange)'}]}/><h3>Position error / disturbance</h3><SignalChart samples={samples} series={[{key:'error',label:'Position error',color:'var(--orange)'},{key:'gust',label:'Wind disturbance',color:'var(--green)'}]}/><div className="signal-readouts"><span>TRUE Z <b>{flight.z.toFixed(3)} m</b></span><span>MEASURED Z <b>{(flight.z+Math.sin(flight.t*9.1)*realism.gpsNoise+realism.imuBias).toFixed(3)} m</b></span><span>UPDATE <b>50 Hz</b></span></div></>}
+          {tab==='Realism'&&<><div className="compact-grid realism-grid"><label>GPS noise <b>±{realism.gpsNoise.toFixed(2)} m</b><input type="range" min="0" max=".5" step=".01" value={realism.gpsNoise} onChange={e=>setRealism(v=>({...v,gpsNoise:+e.target.value}))}/></label><label>IMU / altitude bias <b>{realism.imuBias.toFixed(2)} m</b><input type="range" min="-.3" max=".3" step=".01" value={realism.imuBias} onChange={e=>setRealism(v=>({...v,imuBias:+e.target.value}))}/></label><label>Motor response delay <b>{realism.motorLag.toFixed(2)} s</b><input type="range" min="0" max=".5" step=".01" value={realism.motorLag} onChange={e=>setRealism(v=>({...v,motorLag:+e.target.value}))}/></label><label>Battery sag <b>{(realism.batterySag*100).toFixed(0)}%</b><input type="range" min="0" max=".5" step=".01" value={realism.batterySag} onChange={e=>setRealism(v=>({...v,batterySag:+e.target.value}))}/></label><label>Turbulence <b>{realism.turbulence.toFixed(1)} N</b><input type="range" min="0" max="5" step=".1" value={realism.turbulence} onChange={e=>setRealism(v=>({...v,turbulence:+e.target.value}))}/></label><label>Payload <b>{realism.payload.toFixed(2)} kg</b><input type="range" min="0" max="2" step=".05" value={realism.payload} onChange={e=>setRealism(v=>({...v,payload:+e.target.value}))}/></label><label>CG offset <b>{realism.cgOffset.toFixed(2)} m</b><input type="range" min="-.2" max=".2" step=".01" value={realism.cgOffset} onChange={e=>setRealism(v=>({...v,cgOffset:+e.target.value}))}/></label><label>Lateral gust <b>{gust.toFixed(1)} N</b><input type="range" min="-6" max="6" step=".2" value={gust} onChange={e=>setGust(+e.target.value)}/></label></div><label className="check-row"><input type="checkbox" checked={realism.groundEffect} onChange={e=>setRealism(v=>({...v,groundEffect:e.target.checked}))}/>GROUND EFFECT MODEL</label><div className="sensor-stack"><div><span>GPS</span><b>{realism.gpsNoise?'NOISY':'IDEAL'}</b></div><div><span>IMU / BARO</span><b>{realism.imuBias?'BIASED':'CALIBRATED'}</b></div><div><span>BATTERY</span><b>{(100-realism.batterySag*100).toFixed(0)}%</b></div><div><span>ACTUATORS</span><b>{realism.motorLag?'DYNAMIC':'INSTANT'}</b></div></div></>}
+          {tab==='Score'&&<><div className="score-hero"><strong>{score.toFixed(0)}</strong><span>STABILITY SCORE / 100</span></div><div className="score-grid"><div><span>RMS TRACKING ERROR</span><b>{rms.toFixed(2)} m</b></div><div><span>ALTITUDE OVERSHOOT</span><b>{overshoot.toFixed(2)} m</b></div><div><span>MOTOR SATURATION</span><b>{(sat*100).toFixed(1)}%</b></div><div><span>ENERGY ESTIMATE</span><b>{energy.toFixed(3)} Wh</b></div><div><span>MISSION TIME</span><b>{flight.t.toFixed(1)} s</b></div><div><span>WAYPOINTS</span><b>{wpIndex+1} / {waypoints.length}</b></div></div><div className="score-actions"><button onClick={exportController}>EXPORT CSV</button><button onClick={saveConfig}>SAVE CONFIG</button><button onClick={loadConfig}>LOAD CONFIG</button><button disabled={history.length<3} onClick={()=>{setActive(false);setReplayIndex(0)}}>REPLAY FLIGHT</button></div>{savedGains&&<div className="gain-compare"><span>SAVED ↔ CURRENT</span><b>POS Kₚ {savedGains.pos.kp.toFixed(2)} → {posGains.kp.toFixed(2)}</b><b>ALT Kₚ {savedGains.alt.kp.toFixed(2)} → {altGains.kp.toFixed(2)}</b></div>}</>}
+          {tab==='Learn'&&<><div className="lesson"><b>P — REACTION</b><p>Pushes toward the waypoint in proportion to current error. Too much causes overshoot.</p><button onClick={()=>{setPidParts({p:true,i:false,d:false});setNotice('P-ONLY EXPERIMENT')}}>TRY P ONLY</button></div><div className="lesson"><b>I — MEMORY</b><p>Accumulates persistent error to reject bias, payload and steady wind. Excess creates windup.</p><button onClick={()=>{setPidParts({p:true,i:true,d:false});setNotice('PI EXPERIMENT')}}>TRY PI</button></div><div className="lesson"><b>D — DAMPING</b><p>Responds to how quickly error changes, reducing oscillation but amplifying sensor noise.</p><button onClick={()=>{setPidParts({p:true,i:true,d:true});applyPreset('Stable')}}>RESTORE PID</button></div><div className="lesson"><b>AUTO-TUNE START</b><p>Loads conservative gains scaled for this analytical vehicle model.</p><button onClick={()=>{setPosGains({kp:1.2+effectiveMass*.2,ki:.08,kd:1.15});setAltGains({kp:4+effectiveMass,ki:.65,kd:3.2});setNotice('MODEL-BASED AUTO-TUNE')}}>AUTO-TUNE</button></div><div className="failure-demos"><button onClick={()=>applyPreset('Oscillatory')}>DEMO: LOW DAMPING</button><button onClick={()=>{applyPreset('Wind');setGust(5)}}>DEMO: WIND RECOVERY</button><button onClick={()=>{setLimits(v=>({...v,thrust:effectiveMass*8}));setNotice('INSUFFICIENT THRUST')}}>DEMO: THRUST LIMIT</button></div></>}
         </div>
-        {(mode==='Manual'?manualMotors:motorOutput).map((m,i)=><div className="motor-control" key={i}><label><span>M{i+1} <i>{i%2?'CCW':'CW'}</i></span><b>{m.toFixed(0)} rpm</b></label><input disabled={mode==='PID'} aria-label={`Motor ${i+1} trim`} type="range" min="-12" max="12" step=".5" value={trim[i]} onChange={e=>setTrim(t=>t.map((v,n)=>n===i?+e.target.value:v))}/></div>)}
-        {mode==='PID'&&<div className="pid-status"><span>ACTIVE TARGET</span><b>WP{wpIndex+1} · [{target.map(v=>v.toFixed(1)).join(', ')}] m</b><small>POS Kₚ 1.5 · Kᵢ 0.1 · K<sub>d</sub> 1.0<br/>ALT Kₚ 5.0 · Kᵢ 0.8 · K<sub>d</sub> 3.0</small></div>}
-        <div className="gust-control"><label><span>LATERAL GUST</span><b>{gust.toFixed(1)} N</b></label><input aria-label="Lateral gust force" type="range" min="-6" max="6" step=".2" value={gust} onChange={e=>setGust(+e.target.value)}/></div>
-        <div className="dynamics-actions"><button onClick={()=>setActive(!active)}>{active?'Ⅱ PAUSE':'▶ RUN'}</button><button onClick={reset}>↺ RESET</button></div>
+        <div className="lab-notice">{notice}</div><div className="dynamics-actions"><button onClick={()=>{setReplayIndex(null);setActive(!active)}}>{active?'Ⅱ PAUSE':'▶ RUN'}</button><button onClick={reset}>↺ RESET FLIGHT</button></div>
       </div>
     </div>
-    <div className="state-strip">
-      <div><span>POSITION x / y / z</span><b>{flight.x.toFixed(2)} / {flight.y.toFixed(2)} / {flight.z.toFixed(2)} m</b></div>
-      <div><span>VELOCITY u / v / w</span><b>{flight.u.toFixed(2)} / {flight.v.toFixed(2)} / {flight.w.toFixed(2)} m/s</b></div>
-      <div><span>ATTITUDE ϕ / θ / ψ</span><b>{deg(flight.phi).toFixed(1)} / {deg(flight.theta).toFixed(1)} / {deg(flight.psi).toFixed(1)}°</b></div>
-      <div><span>RATES p / q / r</span><b>{deg(flight.p).toFixed(1)} / {deg(flight.q).toFixed(1)} / {deg(flight.r).toFixed(1)} °/s</b></div>
-    </div>
+    <div className="state-strip"><div><span>POSITION x / y / z</span><b>{flight.x.toFixed(2)} / {flight.y.toFixed(2)} / {flight.z.toFixed(2)} m</b></div><div><span>VELOCITY u / v / w</span><b>{flight.u.toFixed(2)} / {flight.v.toFixed(2)} / {flight.w.toFixed(2)} m/s</b></div><div><span>ATTITUDE ϕ / θ / ψ</span><b>{deg(flight.phi).toFixed(1)} / {deg(flight.theta).toFixed(1)} / {deg(flight.psi).toFixed(1)}°</b></div><div><span>RATES p / q / r</span><b>{deg(flight.p).toFixed(1)} / {deg(flight.q).toFixed(1)} / {deg(flight.r).toFixed(1)} °/s</b></div></div>
   </div>;
 }
 
