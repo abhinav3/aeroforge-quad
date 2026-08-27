@@ -2,6 +2,8 @@
 
 Interactive aerodynamic and 6-DOF flight-dynamics simulator for quadcopters. Explore airflow, tune vehicle parameters, and watch a PID-controlled aircraft fly a three-dimensional waypoint mission—all in the browser.
 
+**[Launch the live AeroForge QUAD simulator](https://abhinav3-aeroforge-quad.netlify.app/)**
+
 ![AeroForge QUAD aerodynamic simulator](public/og.png)
 
 ## Waypoint navigation
